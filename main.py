@@ -1,6 +1,7 @@
 import os
 import asyncio
 import uuid
+import subprocess
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -81,6 +82,50 @@ def asset_create(kind: str, file_path: str, project_id: Optional[str] = None, me
     _id = db['asset'].insert_one(asset).inserted_id
     asset['id'] = str(_id)
     return asset
+
+
+def _ffmpeg_available() -> bool:
+    try:
+        subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        return True
+    except Exception:
+        return False
+
+
+def convert_to_wav_mono_44k(input_path: str) -> Dict[str, Any]:
+    """
+    Ensure clip is WAV mono 44.1kHz. Uses ffmpeg if available. Returns dict with
+    output_path, sample_rate, duration_sec, converted.
+    """
+    base, _ = os.path.splitext(os.path.basename(input_path))
+    out_path = os.path.join(ASSETS_DIR, f"{base}_std.wav")
+    converted = False
+    if _ffmpeg_available():
+        # -y overwrite, -ac 1 mono, -ar 44100 sample rate
+        subprocess.run([
+            "ffmpeg", "-y", "-i", input_path, "-ac", "1", "-ar", "44100", out_path
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        converted = True
+    else:
+        # Fallback: if already wav, copy; otherwise leave as-is
+        if input_path.lower().endswith('.wav'):
+            with open(input_path, 'rb') as src, open(out_path, 'wb') as dst:
+                dst.write(src.read())
+        else:
+            # Cannot convert without ffmpeg
+            out_path = input_path
+            converted = False
+    # Probe duration and sr using wave
+    sr = 0
+    dur = 0.0
+    try:
+        with contextlib.closing(wave.open(out_path, 'rb')) as wf:
+            sr = wf.getframerate()
+            frames = wf.getnframes()
+            dur = frames / float(sr) if sr else 0.0
+    except Exception:
+        sr, dur = 0, 0.0
+    return {"output_path": out_path, "sample_rate": sr, "duration_sec": dur, "converted": converted}
 
 
 # ---------- Basic routes ----------
@@ -193,51 +238,63 @@ async def _worker_instrumental(job_id: str, req: GenerateInstrumentalRequest):
 async def upload_voice(files: List[UploadFile] = File(...), name: str = Form("Custom Voice"), locale: str = Form("bn"), gender: str = Form("female")):
     if len(files) < 1:
         raise HTTPException(status_code=400, detail="Upload at least 1 file")
-    saved = []
+    saved_urls: List[str] = []
+    processed_urls: List[str] = []
     report: Dict[str, Any] = {"clips": []}
+
     for f in files[:30]:
-        filename = f.filename.lower()
-        if not (filename.endswith('.wav') or filename.endswith('.mp3') or filename.endswith('.amr')):
+        filename = f.filename or "clip"
+        lower = filename.lower()
+        if not (lower.endswith('.wav') or lower.endswith('.mp3') or lower.endswith('.amr')):
             raise HTTPException(status_code=400, detail="Only WAV, MP3, AMR files allowed")
         data = await f.read()
         if len(data) > 10*1024*1024:
             raise HTTPException(status_code=400, detail="Clip exceeds 10MB")
-        ext = os.path.splitext(filename)[1]
-        fname = f"voice_{uuid.uuid4().hex}{ext}"
-        fpath = os.path.join(ASSETS_DIR, fname)
-        with open(fpath, 'wb') as out:
+        # Save original
+        ext = os.path.splitext(lower)[1]
+        raw_name = f"voice_{uuid.uuid4().hex}{ext}"
+        raw_path = os.path.join(ASSETS_DIR, raw_name)
+        with open(raw_path, 'wb') as out:
             out.write(data)
-        # basic checks (only for wav we can parse here)
-        channels = 0
-        sr = 0
-        dur = 0
-        if ext == '.wav':
+        saved_urls.append(f"/assets/{raw_name}")
+
+        # Convert to standard WAV mono 44.1k using ffmpeg if available
+        info = convert_to_wav_mono_44k(raw_path)
+        wav_url = f"/assets/{os.path.basename(info['output_path'])}"
+        processed_urls.append(wav_url)
+
+        # Analyze
+        sr = info.get('sample_rate', 0)
+        dur = float(info.get('duration_sec', 0.0))
+        if dur < 0.5:
+            # Clean up the too-short processed file
             try:
-                with contextlib.closing(wave.open(fpath, 'rb')) as wf:
-                    channels = wf.getnchannels()
-                    sr = wf.getframerate()
-                    frames = wf.getnframes()
-                    dur = frames/float(sr) if sr else 0
+                if os.path.exists(info['output_path']):
+                    os.remove(info['output_path'])
             except Exception:
-                channels, sr, dur = 0, 0, 0
+                pass
+            raise HTTPException(status_code=400, detail=f"Clip {filename} is too short (<0.5s). Please upload longer audio.")
         clip_report = {
-            'file': f"/assets/{fname}", 'channels': channels, 'sample_rate': sr,
-            'duration_sec': round(dur,2), 'mono_ok': channels == 1 if channels else False,
-            'sr_ok': 16000 <= sr <= 48000 if sr else False,
-            'converted': ext in ['.mp3', '.amr'],
+            'file': wav_url,
+            'sampleRate': sr,
+            'duration_ms': int(dur*1000),
+            'clipping': False,
+            'converted': bool(info.get('converted', False)) or (ext != '.wav'),
         }
         report['clips'].append(clip_report)
-        saved.append(f"/assets/{fname}")
-    quality_ok = all((c['mono_ok'] and c['sr_ok']) or c['converted'] for c in report['clips'])
+
+    quality_ok = all(c['duration_ms'] >= 500 for c in report['clips'])
     report['quality_ok'] = quality_ok
-    profile = VoiceProfile(name=name, locale=locale, gender=gender, files=saved, quality_report=report, preset=False).model_dump()
+
+    profile = VoiceProfile(name=name, locale=locale, gender=gender, files=processed_urls, quality_report=report, preset=False).model_dump()
     vid = db['voiceprofile'].insert_one(profile).inserted_id
+
     demo_name = f"voice_demo_{uuid.uuid4().hex}.wav"
     demo_path = os.path.join(ASSETS_DIR, demo_name)
     save_wav_silence(demo_path, duration_sec=2)
     demo_url = f"/assets/{demo_name}"
     db['voiceprofile'].update_one({'_id': vid}, {'$set': {'demo_url': demo_url}})
-    return {"voiceProfileId": str(vid), "qualityReport": report, "demoUrl": demo_url}
+    return {"voiceProfileId": str(vid), "processedFiles": processed_urls, "qualityReport": report, "demoUrl": demo_url}
 
 
 @app.delete("/api/voice/{voice_id}")

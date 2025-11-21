@@ -5,3 +5,27 @@ INFO:     Started server process [386]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     172.20.0.1:34428 - "HEAD / HTTP/1.1" 405 Method Not Allowed
+WARNING:  StatReload detected changes in 'blueflame_orchestrator.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [386]
+INFO:     Started server process [410]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  StatReload detected changes in 'blueflame_orchestrator.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [410]
+INFO:     Started server process [416]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  StatReload detected changes in 'main.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [416]
+INFO:     Started server process [430]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.

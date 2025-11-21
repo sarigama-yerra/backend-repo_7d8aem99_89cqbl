@@ -1,0 +1,19 @@
+{
+  "info": {
+    "name": "AI Song Generator API (Mock)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Endpoints for the mock-mode AI Song Generator."
+  },
+  "item": [
+    {"name": "Create Project", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{BASE}}/api/projects", "host": ["{{BASE}}"], "path": ["api","projects"]}, "body": {"mode": "raw", "raw": "{\n  \"name\": \"Demo\",\n  \"tempo\": 80,\n  \"key\": \"C minor\",\n  \"style\": \"Romantic\",\n  \"duration_sec\": 120,\n  \"instruments\": [\"Piano\"],\n  \"lyrics\": \"Ami tomar...\"\n}"}}},
+    {"name": "Upload Voice", "request": {"method": "POST", "url": {"raw": "{{BASE}}/api/upload/voice", "host": ["{{BASE}}"], "path": ["api","upload","voice"]}, "body": {"mode": "formdata", "formdata": [{"key": "files", "type": "file", "src": []},{"key": "name","value": "Custom Voice","type":"text"},{"key": "locale","value":"bn","type":"text"},{"key": "gender","value":"female","type":"text"}]}}},
+    {"name": "Generate Instrumental", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{BASE}}/api/generate/instrumental", "host": ["{{BASE}}"], "path": ["api","generate","instrumental"]}, "body": {"mode": "raw", "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"tempo\": 80,\n  \"key\": \"C minor\",\n  \"instruments\": [\"Piano\","Guitar"],\n  \"length_sec\": 30,\n  \"style\": \"Romantic\"\n}"}}},
+    {"name": "Generate Melody", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{BASE}}/api/generate/melody", "host": ["{{BASE}}"], "path": ["api","generate","melody"]}, "body": {"mode": "raw", "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"lyrics\": \"Ami tomar...\",\n  \"style\": \"Romantic\",\n  \"tempo\": 80,\n  \"key\": \"C minor\"\n}"}}},
+    {"name": "Synthesize Vocal", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{BASE}}/api/synthesize/vocal", "host": ["{{BASE}}"], "path": ["api","synthesize","vocal"]}, "body": {"mode": "raw", "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"voiceProfileId\": \"{{voiceProfileId}}\",\n  \"melodyUrl\": \"/assets/sample.mid\",\n  \"lyrics\": \"Ami tomar...\"\n}"}}},
+    {"name": "Mix", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{BASE}}/api/mix", "host": ["{{BASE}}"], "path": ["api","mix"]}, "body": {"mode": "raw", "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"stems\": [],\n  \"masterTargetLUFS\": -14\n}"}}},
+    {"name": "Generate Video", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{BASE}}/api/generate/video", "host": ["{{BASE}}"], "path": ["api","generate","video"]}, "body": {"mode": "raw", "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"audioUrl\": \"/assets/master.wav\",\n  \"style\": \"Romantic\",\n  \"aspectRatio\": \"16:9\"\n}"}}},
+    {"name": "Full Create", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{BASE}}/api/generate/create", "host": ["{{BASE}}"], "path": ["api","generate","create"]}, "body": {"mode": "raw", "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"tempo\": 80,\n  \"key\": \"C minor\",\n  \"style\": \"Romantic\",\n  \"lyrics\": \"Ami tomar...\",\n  \"instruments\": [\"Piano\", \"Acoustic Guitar\"]\n}"}}},
+    {"name": "Job Status", "request": {"method": "GET", "url": {"raw": "{{BASE}}/api/job/{{jobId}}/status", "host": ["{{BASE}}"], "path": ["api","job", "{{jobId}}", "status"]}}}
+  ],
+  "variable": [{"key": "BASE", "value": "http://localhost:8000"}]
+}

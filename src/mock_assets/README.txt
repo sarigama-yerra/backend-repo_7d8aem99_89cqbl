@@ -1,0 +1,1 @@
+Put large mock binary assets here if needed (mp4/png/wav). The mock pipeline will generate small placeholder files on the fly if none are present.

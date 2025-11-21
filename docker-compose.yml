@@ -1,0 +1,26 @@
+version: '3.8'
+services:
+  backend:
+    build: .
+    image: ai-song-backend:latest
+    environment:
+      - MOCK_MODE=true
+      - PORT=8000
+      - BLUEFLAME_API_KEY=${BLUEFLAME_API_KEY:-}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - DATABASE_NAME=${DATABASE_NAME:-}
+    volumes:
+      - ./assets:/app/assets
+      - ./src/mock_assets:/app/src/mock_assets
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ../frontend
+    image: ai-song-frontend:latest
+    environment:
+      - VITE_BACKEND_URL=http://localhost:8000
+    ports:
+      - "3000:3000"
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3000"]
