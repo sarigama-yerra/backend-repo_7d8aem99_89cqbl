@@ -1,0 +1,51 @@
+{
+  "instrumental": {
+    "name": "Instrumental Generation",
+    "goal": "Create separate clean stems for selected instruments matching tempo, key, and mood (Romantic/Sad/One-sided)",
+    "prompt": "You are Blue Flame Music Model. Generate multi-track accompaniment. Constraints: tempo={{tempo}} BPM, key={{key}}, length={{length_sec}} sec, style={{style}}. Instruments: {{instruments|join(', ')}}. Return signed URLs for each stem in 44.1kHz WAV. Keep dynamics gentle, avoid clipping, keep drums subtle for romantic/sad.",
+    "returns": {"stems": [{"instrument": "Piano", "url": "https://.../piano.wav"}]},
+    "retry": {"max": 3, "backoff_ms": 1500}
+  },
+  "melody": {
+    "name": "Lyrics-to-Melody",
+    "goal": "Compose a singable monophonic melody from timed lyric lines",
+    "prompt": "Given lyrics in Bengali/Hindi/English, compose a vocal melody: style={{style}}, tempo={{tempo}}, key={{key}}. Avoid leaps > octave, prefer stepwise motion. Output MIDI (base64) and a simple guide audio WAV (base64) with a soft sine. Also return per-line timestamps (start,end,text). Lyrics:\n{{lyrics}}",
+    "returns": {"midi_b64": "...", "guide_b64": "...", "timestamps": [{"start": 0.0, "end": 2.0, "text": "..."}]},
+    "retry": {"max": 3, "backoff_ms": 1500}
+  },
+  "vocal_synth": {
+    "name": "Vocal Synthesis",
+    "goal": "Render lead vocal using a selected voice profile",
+    "prompt": "Synthesize expressive lead vocal from melody and lyrics using voice={{voice_name}} (locale={{locale}}, gender={{gender}}). Provide two takes with small timing/humanization variations. Input: melody_midi={{midi_url}}, lyrics text. Output 2 mono WAV stems (44.1kHz) and timing alignment JSON.",
+    "returns": {"takes": [{"url": "https://.../take1.wav"}, {"url": "https://.../take2.wav"}]},
+    "retry": {"max": 3, "backoff_ms": 2000}
+  },
+  "mix": {
+    "name": "Mix & Master",
+    "goal": "Gentle EQ/comp, vocal-forward mix, target -14 LUFS",
+    "prompt": "Mix stems with vocal-forward balance. Apply subtle reverb to vocal, gentle low-cut on pads, tame harshness 3–5 kHz, light bus compression. Target integrated loudness {{lufs}} LUFS, true-peak <= -1 dBFS. Output master WAV and processed stems.",
+    "returns": {"master_url": "https://.../master.wav", "stems": [{"instrument": "Piano", "url": "..."}]},
+    "retry": {"max": 2, "backoff_ms": 2000}
+  },
+  "video": {
+    "name": "Lyric Video",
+    "goal": "Generate mood-matched lyric video with burned subtitles",
+    "prompt": "Create MP4 video, aspect={{aspect_ratio}} (16:9 or 9:16). Visuals: minimal, soft gradients, romantic/sad mood consistent with {{style}}. Overlay timed subtitles from provided timestamps. Provide 6 storyboard thumbnails before render, then final MP4.",
+    "returns": {"thumbnails": ["https://.../thumb1.png"], "video_url": "https://.../video.mp4"},
+    "retry": {"max": 3, "backoff_ms": 2000}
+  },
+  "pre_generated_voices": {
+    "name": "Built-in Voice Presets",
+    "goal": "Expose curated Bengali/Hindi voice presets",
+    "prompt": "Return 4 preset voices optimized for Bengali/Hindi: bn-female-soft, bn-male-warm, hi-female-airy, hi-male-deep. Include demo URLs, recommended pitch/timbre settings, and speaking-singing adaptation hints.",
+    "returns": {"voices": [{"id": "bn_f_soft", "demo_url": "https://.../bn_f_soft.wav"}]},
+    "retry": {"max": 1, "backoff_ms": 1000}
+  },
+  "promo": {
+    "name": "Promo Clip",
+    "goal": "30s vertical social-ready clip <= 50MB",
+    "prompt": "Produce a 30s 9:16 promo with bold title card, 2–3 quick scenes, captions, size <= 50MB. Input: master_url={{master_url}}, timestamps.",
+    "returns": {"promo_url": "https://.../promo.mp4"},
+    "retry": {"max": 2, "backoff_ms": 1500}
+  }
+}
