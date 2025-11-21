@@ -1,0 +1,2 @@
+MIDI_PLACEHOLDER tempo=80 key=C minor style=Romantic
+t=0.00s lyric=Ami shob shomoy chupi chupi tomar naam ta likhi buk-e hawa bole keno bujho na amar chokher shob kotha-toke. Shonay na tumi moner shur ta ekla ghuri ami tomar poth-e. Tumi na thaka-tei ami hoye gechi eka onek kotha bolte chai kintu hoi na beka chokher jol-e likhe jay ekla prem-er lekha. Dure giye-o je tumi kacher moto lage bhaanga moner gopon shur uthe ashe srote srote. note=C4 len=1.0

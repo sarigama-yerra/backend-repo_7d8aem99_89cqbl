@@ -21,6 +21,8 @@ import contextlib
 ASSETS_DIR = os.path.join(os.getcwd(), 'assets')
 os.makedirs(ASSETS_DIR, exist_ok=True)
 
+MOCK_MODE = os.getenv("MOCK_MODE", "true").lower() == "true"
+
 app = FastAPI(title="AI Song Generator (Reference)")
 
 app.add_middleware(
@@ -85,7 +87,7 @@ def asset_create(kind: str, file_path: str, project_id: Optional[str] = None, me
 
 @app.get("/")
 async def root():
-    return {"name": "AI Song Generator", "status": "ok"}
+    return {"name": "AI Song Generator", "status": "ok", "mock": MOCK_MODE}
 
 
 class CreateProjectBody(BaseModel):
@@ -155,7 +157,7 @@ async def _worker_melody(job_id: str, req: GenerateMelodyRequest):
             if line.strip():
                 mapping.append({'start': round(t,2), 'end': round(t+2.0,2), 'text': line.strip()})
                 t += 2.0
-        result = {"midiUrl": midi_asset['url'], "guideUrl": guide_asset['url'], "lyricTimestamps": mapping}
+        result = {"midiUrl": midi_asset['url'], "guideAudioUrl": guide_asset['url'], "timestamps": mapping}
         job_update(job_id, status='done', progress=100, message='Melody ready', result=result)
     except Exception as e:
         job_update(job_id, status='error', message=str(e))
@@ -178,7 +180,7 @@ async def _worker_instrumental(job_id: str, req: GenerateInstrumentalRequest):
             nm = f"stem_{inst.lower()}_{uuid.uuid4().hex}.wav"
             pth = os.path.join(ASSETS_DIR, nm)
             save_wav_silence(pth, duration_sec=min(30, req.length_sec))
-            asset = asset_create('wav', pth, req.projectId, meta={'instrument': inst})
+            asset = asset_create('wav', pth, req.projectId, meta={'instrument': inst, 'tempo': req.tempo, 'key': req.key})
             stems.append(asset['url'])
             job_update(job_id, progress=min(90, int(10+per*(i+1))), message=f'{inst} generated')
         result = {"stems": stems}
@@ -194,32 +196,39 @@ async def upload_voice(files: List[UploadFile] = File(...), name: str = Form("Cu
     saved = []
     report: Dict[str, Any] = {"clips": []}
     for f in files[:30]:
-        if not f.filename.lower().endswith('.wav'):
-            raise HTTPException(status_code=400, detail="Only WAV files allowed")
+        filename = f.filename.lower()
+        if not (filename.endswith('.wav') or filename.endswith('.mp3') or filename.endswith('.amr')):
+            raise HTTPException(status_code=400, detail="Only WAV, MP3, AMR files allowed")
         data = await f.read()
         if len(data) > 10*1024*1024:
             raise HTTPException(status_code=400, detail="Clip exceeds 10MB")
-        fname = f"voice_{uuid.uuid4().hex}.wav"
+        ext = os.path.splitext(filename)[1]
+        fname = f"voice_{uuid.uuid4().hex}{ext}"
         fpath = os.path.join(ASSETS_DIR, fname)
         with open(fpath, 'wb') as out:
             out.write(data)
-        # basic checks
-        try:
-            with contextlib.closing(wave.open(fpath, 'rb')) as wf:
-                channels = wf.getnchannels()
-                sr = wf.getframerate()
-                frames = wf.getnframes()
-                dur = frames/float(sr)
-        except Exception:
-            channels, sr, dur = 0, 0, 0
+        # basic checks (only for wav we can parse here)
+        channels = 0
+        sr = 0
+        dur = 0
+        if ext == '.wav':
+            try:
+                with contextlib.closing(wave.open(fpath, 'rb')) as wf:
+                    channels = wf.getnchannels()
+                    sr = wf.getframerate()
+                    frames = wf.getnframes()
+                    dur = frames/float(sr) if sr else 0
+            except Exception:
+                channels, sr, dur = 0, 0, 0
         clip_report = {
             'file': f"/assets/{fname}", 'channels': channels, 'sample_rate': sr,
-            'duration_sec': round(dur,2), 'mono_ok': channels == 1,
-            'sr_ok': 16000 <= sr <= 48000,
+            'duration_sec': round(dur,2), 'mono_ok': channels == 1 if channels else False,
+            'sr_ok': 16000 <= sr <= 48000 if sr else False,
+            'converted': ext in ['.mp3', '.amr'],
         }
         report['clips'].append(clip_report)
         saved.append(f"/assets/{fname}")
-    quality_ok = all(c['mono_ok'] and c['sr_ok'] and c['duration_sec'] >= 0.3 for c in report['clips'])
+    quality_ok = all((c['mono_ok'] and c['sr_ok']) or c['converted'] for c in report['clips'])
     report['quality_ok'] = quality_ok
     profile = VoiceProfile(name=name, locale=locale, gender=gender, files=saved, quality_report=report, preset=False).model_dump()
     vid = db['voiceprofile'].insert_one(profile).inserted_id
@@ -228,7 +237,7 @@ async def upload_voice(files: List[UploadFile] = File(...), name: str = Form("Cu
     save_wav_silence(demo_path, duration_sec=2)
     demo_url = f"/assets/{demo_name}"
     db['voiceprofile'].update_one({'_id': vid}, {'$set': {'demo_url': demo_url}})
-    return {"voiceProfileId": str(vid), "quality": report, "demoUrl": demo_url}
+    return {"voiceProfileId": str(vid), "qualityReport": report, "demoUrl": demo_url}
 
 
 @app.delete("/api/voice/{voice_id}")
@@ -276,7 +285,14 @@ async def _worker_mix(job_id: str, req: MixRequest):
         master_path = os.path.join(ASSETS_DIR, master_nm)
         save_wav_silence(master_path, duration_sec=10)
         master_asset = asset_create('wav', master_path, req.projectId, meta={'lufs': req.masterTargetLUFS})
-        job_update(job_id, status='done', progress=100, message='Master ready', result={'masterUrl': master_asset['url']})
+        stems_processed = []
+        for i in range(2):
+            nm = f"stem_processed_{i}_{uuid.uuid4().hex}.wav"
+            pth = os.path.join(ASSETS_DIR, nm)
+            save_wav_silence(pth, duration_sec=3)
+            asset = asset_create('wav', pth, req.projectId)
+            stems_processed.append(asset['url'])
+        job_update(job_id, status='done', progress=100, message='Master ready', result={'masterUrl': master_asset['url'], 'stemsProcessed': stems_processed})
     except Exception as e:
         job_update(job_id, status='error', message=str(e))
 
@@ -305,8 +321,80 @@ async def _worker_video(job_id: str, req: GenerateVideoRequest):
         # placeholder mp4 (not a real mp4, but a stub file for demo)
         with open(vid_path, 'wb') as f:
             f.write(os.urandom(2048))
-        video_asset = asset_create('video', vid_path, req.projectId, meta={'aspectRatio': req.aspectRatio})
+        video_asset = asset_create('video', vid_path, req.projectId, meta={'aspectRatio': req.aspectRatio, 'style': req.style})
         job_update(job_id, status='done', progress=100, message='Video ready', result={'videoUrl': video_asset['url'], 'thumbnails': thumbs})
+    except Exception as e:
+        job_update(job_id, status='error', message=str(e))
+
+
+@app.post("/api/generate/create")
+async def generate_create(body: Dict[str, Any]):
+    """End-to-end pipeline orchestrator in mock-mode."""
+    project_id = body.get('projectId')
+    if not project_id:
+        raise HTTPException(status_code=400, detail='projectId required')
+    job_id = job_create('create', project_id, message='Starting full pipeline')
+    asyncio.create_task(_worker_full(job_id, body))
+    return {"jobId": job_id}
+
+
+async def _worker_full(job_id: str, body: Dict[str, Any]):
+    try:
+        project_id = body['projectId']
+        tempo = int(body.get('tempo', 80))
+        key = body.get('key', 'C minor')
+        lyrics = body.get('lyrics', '')
+        instruments = body.get('instruments', ['Piano'])
+        style = body.get('style', 'Romantic')
+
+        # Instrumental
+        job_update(job_id, status='running', progress=5, message='Instrumental')
+        await asyncio.sleep(0.5)
+        inst_urls = []
+        for inst in instruments:
+            nm = f"stem_{inst.lower()}_{uuid.uuid4().hex}.wav"
+            pth = os.path.join(ASSETS_DIR, nm)
+            save_wav_silence(pth, duration_sec=6)
+            inst_urls.append(f"/assets/{nm}")
+        # Melody
+        job_update(job_id, progress=25, message='Melody')
+        await asyncio.sleep(0.3)
+        midi_name = f"melody_{uuid.uuid4().hex}.mid.txt"
+        midi_path = os.path.join(ASSETS_DIR, midi_name)
+        with open(midi_path, 'w') as f:
+            f.write(f"MIDI_PLACEHOLDER tempo={tempo} key={key} style={style}\n")
+        midi_url = f"/assets/{midi_name}"
+        # Vocal
+        job_update(job_id, progress=45, message='Vocal Synthesis')
+        await asyncio.sleep(0.3)
+        vocal_nm = f"vocal_{uuid.uuid4().hex}.wav"
+        vocal_path = os.path.join(ASSETS_DIR, vocal_nm)
+        save_wav_silence(vocal_path, duration_sec=6)
+        vocal_url = f"/assets/{vocal_nm}"
+        # Mix
+        job_update(job_id, progress=70, message='Mix & Master')
+        await asyncio.sleep(0.3)
+        master_nm = f"master_{uuid.uuid4().hex}.wav"
+        master_path = os.path.join(ASSETS_DIR, master_nm)
+        save_wav_silence(master_path, duration_sec=8)
+        master_url = f"/assets/{master_nm}"
+        # Video
+        job_update(job_id, progress=85, message='Video')
+        await asyncio.sleep(0.3)
+        vid_name = f"video_{uuid.uuid4().hex}.mp4"
+        vid_path = os.path.join(ASSETS_DIR, vid_name)
+        with open(vid_path, 'wb') as f:
+            f.write(os.urandom(4096))
+        video_url = f"/assets/{vid_name}"
+
+        result = {
+            'stems': inst_urls,
+            'midiUrl': midi_url,
+            'vocalUrl': vocal_url,
+            'masterUrl': master_url,
+            'videoUrl': video_url,
+        }
+        job_update(job_id, status='done', progress=100, message='Done', result=result)
     except Exception as e:
         job_update(job_id, status='error', message=str(e))
 
